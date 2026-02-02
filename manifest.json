@@ -1,0 +1,20 @@
+{
+  "name": "Usability Tester - Instant Usability testing",
+  "id": "1383457529531594701",
+  "api": "1.0.0",
+  "main": "dist/code.js",
+  "ui": "dist/ui.html",
+  "editorType": [
+    "figma",
+    "figjam"
+  ],
+  "enableProposedApi": false,
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": [
+      "https://api.openai.com",
+      "https://generativelanguage.googleapis.com"
+    ],
+    "reasoning": "Acceess openai and google AI API."
+  }
+}
