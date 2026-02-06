@@ -1,5 +1,5 @@
 import { UIElement, PostData } from '../../UsabilityTester.type';
-import { createPromptForTask } from './prompts';
+import { createHolisticPrompt } from './prompts';
 
 export function createText(characters: string, fontSize: number, fontStyle: 'Regular' | 'Bold'): TextNode {
   const text = figma.createText();
@@ -34,7 +34,7 @@ export function createTextFrame(title: string, content: string): FrameNode {
   const frame = figma.createFrame();
   frame.name = title;
 
-  const titleText = createText(title, 32, 'Bold');
+  const titleText = createText(title, 48, 'Bold');  // task_desc와 동일한 48px Bold
 
   // decode 'content' e.g. "To complete the task of booking a ride, I need to tap the \"Book JustGrab\" button." -> "To complete the task of booking a ride, I need to tap the "Book JustGrab" button."
   const decodedContent = content.replace(/\\(.)/g, '$1');
@@ -168,7 +168,7 @@ export function createUTReportsFrame() {
 export function createTaskFrame(taskName: string) {
   const frame = figma.createFrame();
   frame.name = taskName;
-  frame.layoutMode = 'VERTICAL';
+  frame.layoutMode = 'HORIZONTAL';  // Header와 Rounds를 가로로 배치
   frame.itemSpacing = 64;
   frame.primaryAxisSizingMode = 'AUTO';
   frame.counterAxisSizingMode = 'AUTO';
@@ -211,7 +211,13 @@ export function createTaskDescFrame(taskDesc: string, personaDesc?: string) {
   frame.appendChild(descText);
 
   if (personaDesc) {
-    const personaText = createText(`As a person who is ${personaDesc}`, 24, 'Regular');
+    // 줄바꿈 제거하고 한 줄로 표시, 100자 초과시 잘라내기
+    const compactPersona = personaDesc.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+    const displayPersona = compactPersona.length > 100
+      ? compactPersona.substring(0, 100) + '...'
+      : compactPersona;
+    const personaText = createText(`👤 페르소나: ${displayPersona}`, 20, 'Regular');
+    personaText.opacity = 0.7;
     frame.appendChild(personaText);
   }
 
@@ -415,10 +421,10 @@ export async function getGenerateReportPrompt(postData: PostData, taskFrameId: s
     const taskFrame = (await figma.getNodeByIdAsync(taskFrameId)) as FrameNode;
     const node = (await figma.getNodeByIdAsync(nodeId)) as SceneNode;
     // create frames for the task and the image
-    const { previewFrame, beforeImage, afterImage, elemList, elementStartX, elementStartY } =
+    const { previewFrame, beforeImage, afterImage, elemList, elementStartX, elementStartY, imageBytes } =
       await createPreviewAndImageFrames(node, taskFrame, roundCount);
     // request AI model and process response
-    const prompt = createPromptForTask(postData.taskDesc, postData.personaDesc);
+    const prompt = createHolisticPrompt(postData.taskDesc, 1, postData.personaDesc);
 
     return {
       prompt,
@@ -428,6 +434,7 @@ export async function getGenerateReportPrompt(postData: PostData, taskFrameId: s
       elemList,
       elementStartX,
       elementStartY,
+      imageBytes,
     };
   } catch (error) {
     console.error('Error in generateReport:', error);
@@ -443,12 +450,12 @@ export async function getImage(frameId: string) {
 export async function generateReportResult(
   data: any,
   previewFrameId: string,
-  beforeImageId: string,
   elemList: UIElement[],
   roundCount: number,
   taskFrameId: string,
   elementStartX: number,
-  elementStartY: number
+  elementStartY: number,
+  imageBytes: Uint8Array
 ) {
   try {
     if (data) {
@@ -456,13 +463,12 @@ export async function generateReportResult(
       // if the response is successful, parse the response
       figma.notify('Received response from AI');
       const previewFrame = (await figma.getNodeByIdAsync(previewFrameId)) as FrameNode;
-      const beforeImage = (await figma.getNodeByIdAsync(beforeImageId)) as FrameNode;
       const res = await parseExploreRsp(
         data,
         previewFrame,
         elemList,
         roundCount,
-        beforeImage,
+        imageBytes,
         elementStartX,
         elementStartY
       );
@@ -480,15 +486,15 @@ export async function generateReportResult(
   }
 }
 
-function parseExploreRsp(
+async function parseExploreRsp(
   rsp: string,
   previewFrame: FrameNode,
   elemList: UIElement[],
   roundCount: number,
-  beforeImage: FrameNode,
+  imageBytes: Uint8Array,
   elementStartX: number,
   elementStartY: number
-): (string | number)[] | null {
+): Promise<(string | number)[] | null> {
   // 뷰포트 포커스 조정 2
   figma.viewport.scrollAndZoomIntoView([previewFrame]);
   try {
@@ -511,14 +517,22 @@ function parseExploreRsp(
     modelResponseFrame.counterAxisSizingMode = 'AUTO';
 
     // Add the observation, thought, action, and summary to the model response frame
+    if (parsedResponse.firstImpression) {
+      modelResponseFrame.appendChild(createTextFrame('첫 마디 (First Impression)', parsedResponse.firstImpression));
+    }
     modelResponseFrame.appendChild(createTextFrame('관찰 (Observation)', observation));
     modelResponseFrame.appendChild(createTextFrame('사고 (Thought)', thought));
     modelResponseFrame.appendChild(createTextFrame('행동 (Action)', action));
     modelResponseFrame.appendChild(createTextFrame('요약 (Summary)', summary));
 
-    // Create a new frame for the action image
-    const actionImageFrame = beforeImage.clone();
-    actionImageFrame.name = `${roundCount}_before_labeled_action`;
+    // Create a new frame for the action image (이미지 바이트로 직접 생성)
+    const actionImageFrame = figma.createFrame();
+    actionImageFrame.name = `${roundCount}_labeled_action`;
+
+    const image = figma.createImage(imageBytes);
+    const { width, height } = await image.getSizeAsync();
+    actionImageFrame.resize(width, height);
+    actionImageFrame.fills = [{ type: 'IMAGE', scaleMode: 'FILL', imageHash: image.hash }];
 
     // Highlight the selected UI element
     if (action.includes('tap') || action.includes('long_press')) {
@@ -608,21 +622,35 @@ function parseExploreRsp(
 
 function parseModelResponse(
   rsp: string
-): { observation: string; thought: string; action: string; summary: string } | null {
+): { firstImpression?: string, observation: string; thought: string; action: string; summary: string } | null {
   // Replace escaped newlines if any
-  const processedRsp = rsp.replace(/\\n/g, '\n');
+  const processedRsp = rsp.replace(/\\n/g, '\n').trim();
 
-  const observationMatch = processedRsp.match(/(?:Observation|관찰): ([\s\S]*?)(?:\n\n(?:Thought|사고):|$)/);
-  const thoughtMatch = processedRsp.match(/(?:Thought|사고): ([\s\S]*?)(?:\n\n(?:Action|행동):|$)/);
-  const actionMatch = processedRsp.match(/(?:Action|행동): ([\s\S]*?)(?:\n\n(?:Summary|요약):|$)/);
-  const summaryMatch = processedRsp.match(/(?:Summary|요약): ([\s\S]*?)(?:"$|$)/);
+  // First Impression: Text before the first section header (Observation/관찰)
+  let firstImpression = '';
+  const firstHeaderMatch = processedRsp.match(/(?:Observation|관찰)[:：]/i);
+  if (firstHeaderMatch && firstHeaderMatch.index > 0) {
+    firstImpression = processedRsp.substring(0, firstHeaderMatch.index).trim();
+  }
+
+  const observationMatch = processedRsp.match(/(?:Observation|관찰)[:：]\s*([\s\S]*?)(?=(?:\n\s*(?:Thought|사고))|(?:Thought|사고)[:：]|$)/i);
+  const thoughtMatch = processedRsp.match(/(?:Thought|사고)[:：]\s*([\s\S]*?)(?=(?:\n\s*(?:Action|행동|여정))|(?:Action|행동|여정)[:：]|$)/i);
+  const actionMatch = processedRsp.match(/(?:Action|행동)[:：]\s*([\s\S]*?)(?=(?:\n\s*(?:Summary|요약))|(?:Summary|요약)[:：]|$)/i);
+  const summaryMatch = processedRsp.match(/(?:Summary|요약)[:：]\s*([\s\S]*?)(?:"$|$)/);
 
   if (!observationMatch || !thoughtMatch || !actionMatch || !summaryMatch) {
     console.error('ERROR: Failed to parse the model response', rsp);
-    return null;
+    // fallback: if we can't find sections, treat everything as observation
+    return {
+      observation: rsp.trim(),
+      thought: '',
+      action: 'FINISH',
+      summary: ''
+    };
   }
 
   return {
+    firstImpression,
     observation: observationMatch[1].trim(),
     thought: thoughtMatch[1].trim(),
     action: actionMatch[1].trim(),
@@ -649,7 +677,7 @@ export async function createPreviewAndImageFrames(node: SceneNode, taskFrame: Fr
   // set time delay for the afterImage to load
   await delay(500);
   previewFrame.appendChild(afterImage);
-  return { previewFrame, beforeImage, afterImage, elemList, elementStartX, elementStartY };
+  return { previewFrame, beforeImage, afterImage, elemList, elementStartX, elementStartY, imageBytes };
 }
 
 function delay(ms: number) {

@@ -7,6 +7,7 @@ const mockNode = {
     id: 'mock-node-id',
     appendChild: vi.fn(),
     resize: vi.fn(),
+    remove: vi.fn(),
     exportAsync: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
     fills: [],
     name: 'Mock Node',
@@ -59,7 +60,13 @@ describe('SequenceProcessor', () => {
 
         // Mock implementations
         mockFigma.getNodeByIdAsync.mockImplementation(async (id: string) => {
-            if (id === 'task-frame-id') return { ...mockNode, id: 'task-frame-id', type: 'FRAME', appendChild: vi.fn() };
+            if (id === 'task-frame-id') return {
+                ...mockNode,
+                id: 'task-frame-id',
+                type: 'FRAME',
+                appendChild: vi.fn(),
+                findChild: vi.fn().mockReturnValue(null),
+            };
             return {
                 ...mockNode,
                 id,

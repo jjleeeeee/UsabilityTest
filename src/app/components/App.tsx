@@ -16,6 +16,9 @@ import {
   Alert,
   Link,
   Typography,
+  Select,
+  Option,
+  Divider,
 } from '@mui/joy';
 
 import { AutoAwesome, FaceRetouchingNatural, Delete } from '@mui/icons-material';
@@ -30,6 +33,7 @@ const App = () => {
   const [personaModalOpen, setPersonaModalOpen] = React.useState(false);
   const [apiKeyModalOpen, setApiKeyModalOpen] = React.useState(false);
   const [apiKeyInput, setApiKeyInput] = React.useState('');
+  const [selectedModel, setSelectedModel] = React.useState('gemini-3-flash-preview');
 
   const currentApiKey = geminiApiKey;
 
@@ -45,6 +49,7 @@ const App = () => {
       taskName: taskName,
       taskDesc: taskDesc,
       personaDesc: personaDesc ? personaDesc : undefined,
+      selectedModel: selectedModel,
     };
 
     parent.postMessage({ pluginMessage: { type: 'submit', data: postData } }, '*');
@@ -141,9 +146,16 @@ const App = () => {
             >
               📝 Report
             </Button>
-            <Typography level="body-xs" fontWeight="bold" sx={{ ml: 'auto', mr: 1, color: 'primary.plainColor' }}>
-              Gemini Flash
-            </Typography>
+            <Select
+              value={selectedModel}
+              onChange={(_, value) => value && setSelectedModel(value as string)}
+              size="sm"
+              variant="outlined"
+              sx={{ minWidth: 140, mr: 1 }}
+            >
+              <Option value="gemini-3-flash-preview">⚡ Flash (빠름)</Option>
+              <Option value="gemini-3-pro-preview">🎯 Pro (정밀)</Option>
+            </Select>
             <Button
               variant="outlined"
               color="neutral"
@@ -223,12 +235,38 @@ const App = () => {
       <Modal open={personaModalOpen} onClose={() => setPersonaModalOpen(false)}>
         <ModalDialog layout="fullscreen">
           <ModalClose />
-          <DialogTitle>Create Persona</DialogTitle>
+          <DialogTitle>페르소나 설정</DialogTitle>
           <DialogContent>
             <Stack spacing={2}>
+              <Typography level="body-sm" color="neutral">
+                빠른 선택: 미리 정의된 페르소나를 선택하거나 직접 입력하세요.
+              </Typography>
+              <Select
+                placeholder="페르소나 선택..."
+                value={personaDesc || undefined}
+                onChange={(_, value) => value && setPersonaDesc(value as string)}
+              >
+                <Option value="">-- 직접 입력 --</Option>
+                <Divider />
+                <Option value="65세 이상, 디지털 기기 사용에 익숙하지 않음, 큰 글씨와 명확한 네비게이션 선호">
+                  👴 시니어 사용자
+                </Option>
+                <Option value="서비스를 처음 사용하는 사용자, 온보딩과 가이드 필요, 주요 기능 탐색 중">
+                  🆕 신규 가입자
+                </Option>
+                <Option value="서비스를 오래 사용한 숙련자, 효율성 중시, 단축키와 고급 기능 선호">
+                  ⚡ 파워 유저
+                </Option>
+                <Option value="시각 또는 운동 장애가 있는 사용자, 스크린 리더 사용, 충분한 터치 영역 필요">
+                  ♿ 접근성 필요 사용자
+                </Option>
+                <Option value="시간이 촉박한 사용자, 빠른 태스크 완료 중시, 불필요한 단계에 민감">
+                  ⏰ 바쁜 직장인
+                </Option>
+              </Select>
+              <Divider />
               <Textarea
-                placeholder="(Optional) Please enter the description of the user persona you'd like me to emulate : "
-                autoFocus
+                placeholder="페르소나 설명을 직접 입력하세요 (예: 60대 기술에 익숙하지 않은 어머니)"
                 value={personaDesc}
                 minRows={3}
                 maxRows={6}
@@ -238,7 +276,7 @@ const App = () => {
           </DialogContent>
           <DialogActions>
             <Button color="primary" variant="soft" onClick={() => setPersonaModalOpen(false)}>
-              Set Persona
+              적용
             </Button>
             <Button
               variant="plain"
@@ -248,7 +286,7 @@ const App = () => {
                 setPersonaModalOpen(false);
               }}
             >
-              Reset
+              초기화
             </Button>
           </DialogActions>
         </ModalDialog>

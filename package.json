@@ -1,11 +1,14 @@
 {
   "name": "usability-tester",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "This Figma plugin serves as a tool for providing useavility testing reports for your Figma design within fingertips.",
   "license": "UNLICENSED",
   "scripts": {
     "build": "webpack --mode=production",
     "build:watch": "webpack --mode=development --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "prettier:format": "prettier --write '**/*.{js,jsx,ts,tsx,css,json}' ",
     "lint": "eslint --ext .ts,.tsx --ignore-pattern node_modules .",
     "lint:fix": "eslint --ext .ts,.tsx --ignore-pattern node_modules --fix ."

@@ -16,9 +16,6 @@ import { aiConfig, updateAIConfig } from './config';
 import { createHolisticPrompt } from './utils/prompts';
 import { SequenceProcessor, SequenceStepResult } from './sequenceProcessor';
 
-// Create model instance
-let modelInstance = createModelInstance(aiConfig);
-
 figma.showUI(__html__, { width: 512, height: 450 });
 
 // 폰트 로드 함수
@@ -46,38 +43,12 @@ const requestAIModelAndProcessResponse = async (prompt: string, afterImageId: st
   }
 };
 
-async function updateAndSendApiKey(apiKey: string) {
-  try {
-    const isValid = true; // Gemini validity check currently skipped
-    if (isValid) {
-      await figma.clientStorage.setAsync('geminiApiKey', apiKey);
-      await figma.clientStorage.setAsync('currentProvider', 'Gemini');
-      updateAIConfig({ provider: 'Gemini', apiKey });
-      modelInstance = createModelInstance(aiConfig);
-      figma.ui.postMessage({
-        type: 'config',
-        message: {
-          geminiApiKey: apiKey,
-          provider: 'Gemini',
-        },
-      });
-      figma.notify(`Gemini API key has been updated`, { timeout: 2000 });
-    } else {
-      figma.ui.postMessage({ type: 'invalidApiKey' });
-      figma.notify('Invalid API key. Please enter a valid API key.', { error: true, timeout: 3000 });
-    }
-  } catch (error) {
-    console.error('Error updating API key:', error);
-    figma.notify('An error occurred while updating the API key.', { error: true });
-  }
-}
 
 // Send key and selection when the UI is loaded
 async function sendApiKeyAndNodeInfoToUI() {
   const geminiApiKey = (await figma.clientStorage.getAsync('geminiApiKey')) || '';
   const currentProvider = 'Gemini';
   if (geminiApiKey) updateAIConfig({ apiKey: geminiApiKey, provider: 'Gemini' });
-  modelInstance = createModelInstance(aiConfig);
   figma.ui.postMessage({
     type: 'config',
     message: {
@@ -99,71 +70,6 @@ figma.on('selectionchange', async () => {
 async function createHolisticReportResult(data: string, taskFrameId: string, results: SequenceStepResult[]) {
   const taskFrame = (await figma.getNodeByIdAsync(taskFrameId)) as FrameNode;
 
-  // Journy map thumbnails removed due to quality issues.
-
-  // Extract 'Journey Actions' section with multiple fallback patterns
-  // Try various possible headers the AI might use
-  let actionsSection = '';
-  const sectionPatterns = [
-    /(?:Journey Actions|여정 분석|행동 분석|Actions)[:：]?\s*([\s\S]*?)(?=(?:Summary|요약|종합)|$)/i,
-    /(?:여정 행동|행동|동작)[:：]?\s*([\s\S]*?)(?=(?:Summary|요약|종합)|$)/i,
-  ];
-
-  for (const pattern of sectionPatterns) {
-    const match = data.match(pattern);
-    if (match && match[1].trim()) {
-      actionsSection = match[1];
-      break;
-    }
-  }
-
-  const stepActions: string[] = [];
-  for (let i = 1; i <= results.length; i++) {
-    let foundAction = '';
-
-    // Strategy 1: Parse from actionsSection if available
-    if (actionsSection) {
-      const regex = new RegExp(`(?:-?\\s*Step\\s*${i}|-?\\s*${i}\\s*단계)\\s*(?:Action|행동|동작)?[:：]?\\s*([\\s\\S]*?)(?=(?:-?\\s*Step\\s*\\d+|-?\\s*\\d+\\s*단계)|$)`, 'i');
-      const match = actionsSection.match(regex);
-      if (match && match[1].trim()) {
-        foundAction = match[1].trim();
-      }
-    }
-
-    // Strategy 2: Search entire response for function-style actions (tap, swipe, text, long_press)
-    if (!foundAction) {
-      const functionPatterns = [
-        new RegExp(`(?:Step\\s*${i}|${i}\\s*단계|${i}번째).*?((?:tap|swipe|text|long_press)\\s*\\([^)]+\\))`, 'is'),
-        new RegExp(`(?:Step\\s*${i}|${i}\\s*단계).*?[:：]\\s*((?:tap|swipe|text|long_press)\\s*\\([^)]+\\))`, 'is'),
-      ];
-      for (const pattern of functionPatterns) {
-        const match = data.match(pattern);
-        if (match) {
-          foundAction = match[1].trim();
-          break;
-        }
-      }
-    }
-
-    // Strategy 3: Look for any function near Step N mention
-    if (!foundAction) {
-      // Find all tap/swipe/text/long_press occurrences and try to associate with step number
-      const allFunctions = [...data.matchAll(/(tap|swipe|text|long_press)\s*\([^)]+\)/gi)];
-      if (allFunctions.length >= i) {
-        foundAction = allFunctions[i - 1][0];
-      }
-    }
-
-    stepActions.push(foundAction || 'FINISH');
-  }
-
-  // DEBUG: Log parsed actions to help troubleshoot
-  console.log('[DEBUG] === AI RESPONSE (first 2000 chars) ===');
-  console.log(data.substring(0, 2000));
-  console.log('[DEBUG] actionsSection found:', actionsSection ? 'YES' : 'NO');
-  console.log('[DEBUG] stepActions:', stepActions);
-  figma.notify(`[Debug] Check console for full AI response`, { timeout: 5000 });
-
   // Helper: clean markdown formatting
   const cleanMarkdown = (text: string): string => {
     return text
@@ -174,16 +80,105 @@ async function createHolisticReportResult(data: string, taskFrameId: string, res
       .trim();
   };
 
-  // Parse step-by-step observations
-  const stepObservations: string[] = [];
-  const observationMatch = data.match(/(?:\*{0,2}Observation|관찰)\*{0,2}[:：]?\s*([\s\S]*?)(?=(?:\n\s*\*{0,2}(?:Thought|사고))|\*{0,2}(?:Thought|사고)\*{0,2}[:：]|$)/i);
-  const observationSection = observationMatch ? observationMatch[1] : '';
+  // 섹션별 직접 파싱 (더 단순하고 명확하게)
+  const extractSection = (headerRegex: RegExp, nextHeaderRegex?: RegExp): string => {
+    const match = data.match(headerRegex);
+    if (!match) return '';
 
-  for (let i = 1; i <= results.length; i++) {
-    const stepRegex = new RegExp(`(?:-?\\s*Step\\s*${i}|${i}\\s*단계)[:：]?\\s*([\\s\\S]*?)(?=(?:-?\\s*Step\\s*\\d+|\\d+\\s*단계)|$)`, 'i');
-    const match = observationSection.match(stepRegex);
-    stepObservations.push(match ? cleanMarkdown(match[1]) : '');
+    const startIndex = match.index! + match[0].length;
+    let endIndex = data.length;
+
+    if (nextHeaderRegex) {
+      const nextMatch = data.substring(startIndex).match(nextHeaderRegex);
+      if (nextMatch) {
+        endIndex = startIndex + nextMatch.index!;
+      }
+    }
+
+    return data.substring(startIndex, endIndex).trim();
+  };
+
+  // 각 섹션 파싱
+  const visualVerification = extractSection(
+    /###\s*시각적\s*사실\s*확인\s*\(Visual Verification\)\s*\n/i,
+    /###\s*(?:첫\s*마디|관찰|Observation|사고|Thought)/i
+  );
+
+  const firstImpression = extractSection(
+    /###\s*첫\s*마디\s*(?:\(First Impression\))?\s*\n/i,
+    /###\s*(?:관찰|Observation|사고|Thought)/i
+  );
+
+  const observationSection = extractSection(
+    /###\s*관찰\s*\(Observation\)\s*\n/i,
+    /###\s*(?:사고|Thought|여정|Journey|Action|행동)/i
+  );
+
+  const thoughtSection = extractSection(
+    /###\s*사고\s*\(Thought\)\s*\n/i,
+    /###\s*(?:여정|Journey|Action|행동|이슈|Issues)/i
+  );
+
+  const actionsSection = extractSection(
+    /###\s*여정\s*분석\s*\(Journey Actions\)\s*\n/i,
+    /###\s*(?:이슈|Issues|UX|요약|Summary)/i
+  );
+
+  const issuesSection = extractSection(
+    /###\s*UX\s+이슈\s*\(Issues\)\s*\n/i,
+    /###\s*요약/i
+  );
+
+  const summarySection = extractSection(
+    /###\s*요약\s*\(Summary\)\s*\n/i
+  );
+
+  // 🔍 디버깅: AI 응답 원본 및 파싱 결과 확인
+  console.log('=== AI 응답 원본 (처음 500자) ===');
+  console.log(data.substring(0, 500));
+  console.log('\n=== 파싱 결과 ===');
+  console.log('visualVerification:', visualVerification ? `${visualVerification.substring(0, 100)}...` : '❌ 비어있음');
+  console.log('firstImpression:', firstImpression ? `${firstImpression.substring(0, 100)}...` : '❌ 비어있음');
+  console.log('observationSection:', observationSection ? `${observationSection.substring(0, 100)}...` : '❌ 비어있음');
+  console.log('thoughtSection:', thoughtSection ? `${thoughtSection.substring(0, 100)}...` : '❌ 비어있음');
+  console.log('actionsSection:', actionsSection ? `${actionsSection.substring(0, 100)}...` : '❌ 비어있음');
+  console.log('issuesSection:', issuesSection ? `${issuesSection.substring(0, 100)}...` : '❌ 비어있음');
+  console.log('summarySection:', summarySection ? `${summarySection.substring(0, 100)}...` : '❌ 비어있음');
+
+  const stepActions: string[] = [];
+  const stepObservations: string[] = [];
+  const stepThoughts: string[] = [];
+
+  for (let i = 0; i < results.length; i++) {
+    const stepNum = i + 1; // Step 1, Step 2, ...
+    const stepRegex = new RegExp(`(?:-?\\s*Step\\s*${stepNum}|${stepNum}\\s*단계)[:：]?\\s*([\\s\\S]*?)(?=(?:-?\\s*Step\\s*\\d+|\\d+\\s*단계)|(?:###?\\s*(?:Thought|사고|Journey|여정|Issues|이슈|Summary|요약))|$)`, 'i');
+
+    // Actions
+    let foundAction = '';
+    if (actionsSection) {
+      const match = actionsSection.match(stepRegex);
+      if (match && match[1].trim()) foundAction = match[1].trim();
+    }
+    if (!foundAction) {
+      const match = data.match(new RegExp(`(?:Step\\s*${stepNum}|${stepNum}\\s*단계).*?((?:tap|swipe|text|long_press)\\s*\\([^)]+\\))`, 'is'));
+      if (match) foundAction = match[1].trim();
+    }
+    stepActions.push(foundAction || 'FINISH');
+
+    // Observations
+    const obsMatch = observationSection.match(stepRegex);
+    stepObservations.push(cleanMarkdown(obsMatch ? obsMatch[1] : ''));
+
+    // Thoughts
+    const thoughtMatch = thoughtSection.match(stepRegex);
+    stepThoughts.push(cleanMarkdown(thoughtMatch ? thoughtMatch[1] : ''));
   }
+
+  // 🔍 디버깅: 각 단계별 행동 확인
+  console.log('\n=== 단계별 행동 (stepActions) ===');
+  stepActions.forEach((action, idx) => {
+    console.log(`Step ${idx + 1}:`, action);
+  });
 
   // Combined loop: for each result, add labeled_action THEN Step Analysis (correct order)
   for (let i = 0; i < results.length; i++) {
@@ -193,8 +188,30 @@ async function createHolisticReportResult(data: string, taskFrameId: string, res
 
     if (previewFrame) {
       // 1. First add labeled_action frame (if applicable)
-      const actionStr = stepActions[i];
-      if (labeledFrame && actionStr && actionStr !== 'FINISH') {
+      let actionStr = stepActions[i] || '';
+
+      // 🔍 디버깅: 각 단계의 actionStr 확인
+      console.log(`\nStep ${i + 1} actionStr (원본):`, actionStr);
+
+      // "- Step 1 Action: tap(상세 보기)" 형태에서 "tap(상세 보기)" 부분만 추출
+      const actionMatch = actionStr.match(/(tap|swipe|text|long_press)\s*\([^)]+\)/i);
+      if (actionMatch) {
+        actionStr = actionMatch[0];
+        console.log(`Step ${i + 1} actionStr (추출):`, actionStr);
+      }
+
+      // 한글 설명이 있는 경우 (예: tap(상세 보기)), 원본 데이터에서 실제 숫자 찾기
+      if (actionStr && !/\d/.test(actionStr)) {
+        // 숫자가 없으면 원본 데이터에서 해당 Step의 실제 함수 호출 찾기
+        const stepNum = i + 1;
+        const realActionMatch = data.match(new RegExp(`Step\\s*${stepNum}.*?((?:tap|swipe|text|long_press)\\s*\\(\\d+[^)]*\\))`, 'is'));
+        if (realActionMatch) {
+          actionStr = realActionMatch[1];
+          console.log(`Step ${i + 1} actionStr (실제 숫자 추출):`, actionStr);
+        }
+      }
+
+      if (labeledFrame && actionStr && !actionStr.includes('FINISH')) {
         const { elemList, imageBytes, elementStartX, elementStartY } = res;
         const actionImageFrame = figma.createFrame();
         actionImageFrame.name = `${i + 1}_labeled_action`;
@@ -258,52 +275,64 @@ async function createHolisticReportResult(data: string, taskFrameId: string, res
         const obs = stepObservations[i] || `Step ${i + 1} 관찰 내용 없음`;
         const obsFrame = createTextFrame(`관찰 (Step ${i + 1})`, obs);
         stepResultFrame.appendChild(obsFrame);
-        obsFrame.layoutSizingHorizontal = 'FILL'; // Set AFTER appendChild
+        obsFrame.layoutSizingHorizontal = 'FILL';
 
+        const thought = stepThoughts[i] || `Step ${i + 1} 사고 내용 없음`;
+        const thoughtFrame = createTextFrame(`사고 (Step ${i + 1})`, thought);
+        stepResultFrame.appendChild(thoughtFrame);
+        thoughtFrame.layoutSizingHorizontal = 'FILL';
+
+        // FINISH 단계에서는 Action 표시하지 않음 (Observation만 표시)
         const cleanedAction = cleanMarkdown(stepActions[i] || 'FINISH');
-        const actionFrame = createTextFrame('행동 (Action)', cleanedAction);
-        stepResultFrame.appendChild(actionFrame);
-        actionFrame.layoutSizingHorizontal = 'FILL'; // Set AFTER appendChild
+        if (!cleanedAction.includes('FINISH')) {
+          const actionFrame = createTextFrame('행동 (Action)', cleanedAction);
+          stepResultFrame.appendChild(actionFrame);
+          actionFrame.layoutSizingHorizontal = 'FILL'; // Set AFTER appendChild
+        }
 
         previewFrame.appendChild(stepResultFrame);
       }
     }
   }
 
-  // === Summary frame at the end (UX Insights + Summary) ===
+  // === Analysis Summary 구성 (Issues 중심) ===
   const resFrame = figma.createFrame();
   resFrame.name = 'Analysis Summary';
-  resFrame.fills = [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }];
-  resFrame.cornerRadius = 24;
-  resFrame.strokes = [{ type: 'SOLID', color: { r: 0.9, g: 0.9, b: 0.9 } }];
-  resFrame.strokeWeight = 2;
+  resFrame.fills = [];
+  resFrame.cornerRadius = 16;
   resFrame.layoutMode = 'VERTICAL';
-  resFrame.itemSpacing = 32;
-  resFrame.paddingTop = resFrame.paddingBottom = resFrame.paddingLeft = resFrame.paddingRight = 40;
+  resFrame.itemSpacing = 48;
+  resFrame.paddingTop = resFrame.paddingBottom = resFrame.paddingLeft = resFrame.paddingRight = 64;
   resFrame.primaryAxisSizingMode = 'AUTO';
   resFrame.counterAxisSizingMode = 'AUTO';
 
-  const summaryPatterns = [
-    // UX Insights (Thought)
-    { label: 'UX 인사이트 (UX Insights)', pattern: /(?:\*{0,2}Thought|사고)\*{0,2}[:：]?\s*([\s\S]*?)(?=(?:\n\s*\*{0,2}(?:Journey|여정|Summary|요약))|\*{0,2}(?:Journey|여정|Summary|요약)\*{0,2}[:：]|$)/i },
-    // Summary
-    { label: '종합 요약 (Summary)', pattern: /(?:\*{0,2}Summary|요약)\*{0,2}[:：]?\s*([\s\S]*?)$/i }
-  ];
+  if (visualVerification) resFrame.appendChild(createTextFrame('시각적 사실 확인 (Visual Verification)', visualVerification));
+  if (firstImpression) resFrame.appendChild(createTextFrame('첫 마디 (First Impression)', firstImpression));
+  if (actionsSection) resFrame.appendChild(createTextFrame('사용자 여정 및 행동 (User Journey & Actions)', actionsSection));
+  if (issuesSection) resFrame.appendChild(createTextFrame('주요 UX 이슈 (Issues)', issuesSection));
+  if (summarySection) resFrame.appendChild(createTextFrame('종합 요약 (Summary)', summarySection));
 
-  let hasContent = false;
-  summaryPatterns.forEach(section => {
-    const match = data.match(section.pattern);
-    if (match && match[1].trim()) {
-      resFrame.appendChild(createTextFrame(section.label, match[1].trim()));
-      hasContent = true;
-    }
-  });
-
-  if (!hasContent) {
+  if (!visualVerification && !firstImpression && !actionsSection && !issuesSection && !summarySection) {
     resFrame.appendChild(createTextFrame('분석 결과 (Analysis Result)', data.trim()));
   }
 
-  taskFrame.appendChild(resFrame);
+  // Header 프레임 찾아서 Analysis Summary 추가 (상단에 배치되도록)
+  const findFrame = (parent: FrameNode, name: string): FrameNode | null => {
+    const directChild = parent.findChild(n => n.name === name) as FrameNode;
+    if (directChild) return directChild;
+    for (const child of parent.children) {
+      if ('findChild' in child) {
+        const found = (child as FrameNode).findChild(n => n.name === name) as FrameNode;
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  const headerFrame = findFrame(taskFrame, 'Header');
+  if (headerFrame) headerFrame.appendChild(resFrame);
+  else taskFrame.appendChild(resFrame);
+
   figma.viewport.scrollAndZoomIntoView([resFrame]);
 }
 
@@ -329,12 +358,12 @@ async function generateReport(postData: PostData, modelInstance: any) {
       }
     } else {
       const nodeId = postData.nodeIds[0];
-      const { prompt, previewFrameId, beforeImageId, afterImageId, elemList, elementStartX, elementStartY }: any =
+      const { prompt, previewFrameId, afterImageId, elemList, elementStartX, elementStartY, imageBytes }: any =
         await getGenerateReportPrompt(postData, taskFrame.id, nodeId, 0);
 
       const response = await requestAIModelAndProcessResponse(prompt, afterImageId, modelInstance);
       if (response.success && response.data) {
-        await generateReportResult(response.data, previewFrameId, beforeImageId, elemList, 0, taskFrame.id, elementStartX, elementStartY);
+        await generateReportResult(response.data, previewFrameId, elemList, 0, taskFrame.id, elementStartX, elementStartY, imageBytes);
       } else {
         errorMessageHandler(response.error || 'Failed to get response');
       }
@@ -352,7 +381,13 @@ async function generateReport(postData: PostData, modelInstance: any) {
 figma.ui.onmessage = async (msg) => {
   if (msg.type === 'submit') {
     const postData: PostData = msg.data;
-    await generateReport(postData, modelInstance);
+    const selectedModel = postData.selectedModel || 'gemini-3-flash-preview';
+
+    // 선택된 모델로 인스턴스 생성
+    const tempConfig = { ...aiConfig, geminiApiModel: selectedModel };
+    const tempModelInstance = createModelInstance(tempConfig);
+
+    await generateReport(postData, tempModelInstance);
   }
 
   if (msg.type === 'moveFocus') {
@@ -364,13 +399,15 @@ figma.ui.onmessage = async (msg) => {
 
   if (msg.type === 'saveApiKey') {
     const { apiKey } = msg.data;
-    await updateAndSendApiKey(apiKey);
+    await figma.clientStorage.setAsync('geminiApiKey', apiKey);
+    updateAIConfig({ apiKey: apiKey });
+    figma.ui.postMessage({ type: 'config', message: aiConfig });
+    figma.notify('API Key saved successfully', { timeout: 3000 });
   }
 
   if (msg.type === 'deleteApiKey') {
     await figma.clientStorage.deleteAsync('geminiApiKey');
     updateAIConfig({ apiKey: '' });
-    modelInstance = createModelInstance(aiConfig);
     figma.ui.postMessage({
       type: 'config',
       message: { geminiApiKey: '', provider: 'Gemini' },

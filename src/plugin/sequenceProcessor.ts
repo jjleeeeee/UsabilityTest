@@ -32,6 +32,9 @@ export class SequenceProcessor {
                 // beforeImage에서 이미지 바이트 추출 (Action Labeling에서 재사용 가능)
                 const imageBytes = await beforeImage.exportAsync({ format: 'PNG' });
 
+                // beforeImage 삭제 (원본 노드에 쌓이는 것 방지)
+                beforeImage.remove();
+
                 // Base64 변환 (API 전송용)
                 const afterImageBase64 = await getImage(afterImage.id);
 

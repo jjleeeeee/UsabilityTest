@@ -4,6 +4,7 @@ export interface PostData {
   taskName: string;
   taskDesc: string;
   personaDesc?: string; // personaDesc is an optional attribute.
+  selectedModel?: string; // selectedModel is an optional attribute.
 }
 
 // Defines the type for UI elements
