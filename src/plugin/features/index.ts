@@ -20,3 +20,4 @@ export * from './slack';
 
 // Phase 4: Advanced
 export * from './heatmap';
+export * from './gazeFlow';

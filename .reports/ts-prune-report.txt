@@ -1,0 +1,101 @@
+vitest.config.ts:3 - default
+src/UsabilityTester.type.tsx:30 - AIModelResponse
+src/plugin/api.tsx:4 - AIModel (used in module)
+src/plugin/features/index.ts:24 - parseIssuePriority
+src/plugin/features/index.ts:44 - getPriorityEmoji
+src/plugin/features/index.ts:58 - categorizeIssuesByPriority
+src/plugin/features/index.ts:71 - parseIssuesFromResponse
+src/plugin/features/index.ts:6 - IssuePriority
+src/plugin/features/index.ts:8 - Issue
+src/plugin/features/index.ts:13 - CategorizedIssues
+src/plugin/features/index.ts:57 - createPersona
+src/plugin/features/index.ts:70 - validatePersona
+src/plugin/features/index.ts:90 - savePersonas
+src/plugin/features/index.ts:99 - loadPersonas
+src/plugin/features/index.ts:107 - deletePersona
+src/plugin/features/index.ts:117 - addPersona
+src/plugin/features/index.ts:6 - Persona
+src/plugin/features/index.ts:14 - DEFAULT_PERSONAS
+src/plugin/features/index.ts:88 - buildFocusPromptSection
+src/plugin/features/index.ts:110 - savePromptSettings
+src/plugin/features/index.ts:117 - loadPromptSettings
+src/plugin/features/index.ts:125 - getDefaultFocusAreas
+src/plugin/features/index.ts:6 - AnalysisFocus
+src/plugin/features/index.ts:13 - FocusOption
+src/plugin/features/index.ts:20 - FOCUS_OPTIONS
+src/plugin/features/index.ts:78 - PromptSettings
+src/plugin/features/index.ts:49 - calculateContrastRatio
+src/plugin/features/index.ts:63 - checkColorContrast
+src/plugin/features/index.ts:95 - checkTouchTarget
+src/plugin/features/index.ts:116 - checkTextSize
+src/plugin/features/index.ts:132 - calculateAccessibilityScore
+src/plugin/features/index.ts:6 - ColorContrastResult
+src/plugin/features/index.ts:16 - TouchTargetResult
+src/plugin/features/index.ts:23 - AccessibilityReport
+src/plugin/features/index.ts:36 - calculateCognitiveLoad
+src/plugin/features/index.ts:108 - getCognitiveLoadEmoji
+src/plugin/features/index.ts:120 - extractMetricsFromNode
+src/plugin/features/index.ts:6 - CognitiveLoadMetrics
+src/plugin/features/index.ts:14 - CognitiveLoadResult
+src/plugin/features/index.ts:33 - createBatchItems
+src/plugin/features/index.ts:45 - calculateProgress
+src/plugin/features/index.ts:71 - updateBatchItem
+src/plugin/features/index.ts:84 - generateBatchSummary
+src/plugin/features/index.ts:96 - withRateLimit
+src/plugin/features/index.ts:114 - processBatchSequentially
+src/plugin/features/index.ts:6 - BatchItem
+src/plugin/features/index.ts:15 - BatchProgress
+src/plugin/features/index.ts:23 - BatchResult
+src/plugin/features/index.ts:56 - getAvailableModels
+src/plugin/features/index.ts:63 - getModelCapabilities
+src/plugin/features/index.ts:70 - validateApiKey
+src/plugin/features/index.ts:88 - getDefaultModel
+src/plugin/features/index.ts:102 - getApiEndpoint
+src/plugin/features/index.ts:121 - saveModelConfig
+src/plugin/features/index.ts:128 - loadModelConfig
+src/plugin/features/index.ts:6 - AIProvider
+src/plugin/features/index.ts:8 - AIModelConfig
+src/plugin/features/index.ts:16 - ModelCapabilities
+src/plugin/features/index.ts:23 - MODEL_CONFIGS
+src/plugin/features/index.ts:22 - generateHtmlReport
+src/plugin/features/index.ts:84 - generateMarkdownReport
+src/plugin/features/index.ts:115 - downloadFile
+src/plugin/features/index.ts:130 - exportReport
+src/plugin/features/index.ts:6 - ReportSection
+src/plugin/features/index.ts:12 - ExportOptions
+src/plugin/features/index.ts:22 - saveWebhookUrl
+src/plugin/features/index.ts:32 - loadWebhookUrl
+src/plugin/features/index.ts:39 - clearWebhookUrl
+src/plugin/features/index.ts:46 - validateWebhookUrl
+src/plugin/features/index.ts:53 - buildSlackMessage
+src/plugin/features/index.ts:125 - sendToSlack
+src/plugin/features/index.ts:142 - notifySlack
+src/plugin/features/index.ts:6 - SlackMessage
+src/plugin/features/index.ts:11 - SlackBlock
+src/plugin/features/index.ts:34 - getHeatColor
+src/plugin/features/index.ts:67 - createHeatmapPoint
+src/plugin/features/index.ts:93 - createHeatmapLayer
+src/plugin/features/index.ts:121 - parseTapPositionsFromResponse
+src/plugin/features/index.ts:147 - toggleHeatmapVisibility
+src/plugin/features/index.ts:157 - removeHeatmapLayers
+src/plugin/features/index.ts:6 - TapPosition
+src/plugin/features/index.ts:13 - HeatmapConfig
+src/plugin/features/index.ts:11 - parseGazeFlowFromObservation
+src/plugin/features/index.ts:29 - getCoordinatesFromElements
+src/plugin/features/index.ts:61 - createGazeFlowArrow
+src/plugin/features/index.ts:3 - GazeFlowConfig
+src/plugin/utils/FigmaUtils.ts:9 - createText (used in module)
+src/plugin/utils/FigmaUtils.ts:150 - getOrCreateUTReportsFrame (used in module)
+src/plugin/utils/FigmaUtils.ts:159 - createUTReportsFrame (used in module)
+src/plugin/utils/FigmaUtils.ts:173 - createTaskFrame (used in module)
+src/plugin/utils/FigmaUtils.ts:183 - createNameFrame (used in module)
+src/plugin/utils/FigmaUtils.ts:202 - createTaskDescFrame (used in module)
+src/plugin/utils/FigmaUtils.ts:232 - createAnatomyFrame (used in module)
+src/plugin/utils/FigmaUtils.ts:247 - createPreviewFrame (used in module)
+src/plugin/utils/FigmaUtils.ts:259 - addNodeImageToPreviewFrame (used in module)
+src/plugin/utils/FigmaUtils.ts:275 - createElemList (used in module)
+src/plugin/utils/FigmaUtils.ts:314 - createImageFrameFromBytes (used in module)
+src/plugin/utils/FigmaUtils.ts:326 - createLabeledImageFrame (used in module)
+src/plugin/utils/FigmaUtils.ts:370 - getFrameImageBase64 (used in module)
+src/plugin/utils/prompts.ts:60 - createPromptForTask
+src/plugin/utils/prompts.ts:1 - prompts (used in module)
