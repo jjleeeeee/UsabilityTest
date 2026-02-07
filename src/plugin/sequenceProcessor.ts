@@ -1,5 +1,6 @@
 import { PostData } from '../UsabilityTester.type';
 import { createPreviewAndImageFrames, getImage } from './utils/FigmaUtils';
+import { DEBUG_PERF } from './controller';
 
 export interface SequenceStepResult {
     nodeId: string;
@@ -26,17 +27,21 @@ export class SequenceProcessor {
             const node = (await figma.getNodeByIdAsync(nodeId)) as SceneNode;
 
             if (node) {
+                const t0 = DEBUG_PERF ? Date.now() : 0;
                 // Anatomy Marker와 함께 이미지 생성. roundsContainer를 두 번째 인자로 전달하여 가로 배치가 되도록 함.
-                const { previewFrame, afterImage, elemList, beforeImage, elementStartX, elementStartY } = await createPreviewAndImageFrames(node, roundsContainer, i + 1);
-
-                // beforeImage에서 이미지 바이트 추출 (Action Labeling에서 재사용 가능)
-                const imageBytes = await beforeImage.exportAsync({ format: 'PNG' });
-
-                // beforeImage 삭제 (원본 노드에 쌓이는 것 방지)
-                beforeImage.remove();
+                const { previewFrame, afterImage, elemList, elementStartX, elementStartY, imageBytes } =
+                    await createPreviewAndImageFrames(node, roundsContainer, i + 1);
+                const t1 = DEBUG_PERF ? Date.now() : 0;
 
                 // Base64 변환 (API 전송용)
                 const afterImageBase64 = await getImage(afterImage.id);
+                const t2 = DEBUG_PERF ? Date.now() : 0;
+
+                if (DEBUG_PERF) {
+                    console.log(
+                        `[perf] Step ${i + 1} createPreviewAndImageFrames: ${Math.round(t1 - t0)}ms, getImage(base64): ${Math.round(t2 - t1)}ms`
+                    );
+                }
 
                 results.push({
                     nodeId,

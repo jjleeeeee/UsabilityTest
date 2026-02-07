@@ -1,5 +1,11 @@
 import { UIElement, PostData } from '../../UsabilityTester.type';
+import { DEBUG_PERF } from '../controller';
 import { createHolisticPrompt } from './prompts';
+import {
+  parseGazeFlowFromObservation,
+  getCoordinatesFromElements,
+  createGazeFlowArrow,
+} from '../features/gazeFlow';
 
 export function createText(characters: string, fontSize: number, fontStyle: 'Regular' | 'Bold'): TextNode {
   const text = figma.createText();
@@ -142,16 +148,7 @@ export function createSpeechBubble(selectedElem: UIElement, text: string, x: num
 }
 
 // "UT Reports" 프레임 검사 및 생성 함수
-export async function getOrCreateUTReportsFrame() {
-  let frame = figma.currentPage.findOne((n) => n.type === 'FRAME' && n.name === 'UT Reports') as FrameNode;
-  if (!frame) {
-    frame = createUTReportsFrame();
-    figma.currentPage.appendChild(frame);
-  }
-  return frame;
-}
-
-export function createUTReportsFrame() {
+export function createUTReportsFrame(anchorNode?: SceneNode) {
   const frame = figma.createFrame();
   frame.name = 'UT Reports';
   frame.layoutMode = 'HORIZONTAL';
@@ -159,9 +156,14 @@ export function createUTReportsFrame() {
   frame.primaryAxisSizingMode = 'AUTO';
   frame.counterAxisSizingMode = 'AUTO';
   frame.cornerRadius = 16;
-  const maxX = figma.currentPage.children.reduce((max, node) => Math.max(max, node.x + node.width), 0);
-  frame.x = maxX + 100;
-  frame.y = 0;
+  if (anchorNode) {
+    frame.x = anchorNode.x + anchorNode.width + 100;
+    frame.y = anchorNode.y;
+  } else {
+    const maxX = figma.currentPage.children.reduce((max, node) => Math.max(max, node.x + node.width), 0);
+    frame.x = maxX + 100;
+    frame.y = 0;
+  }
   return frame;
 }
 
@@ -253,7 +255,7 @@ export function createPreviewFrame(): FrameNode {
 
 export async function addNodeImageToPreviewFrame(
   node: SceneNode
-): Promise<{ imageHash: string; imageBytes: Uint8Array }> {
+): Promise<Uint8Array> {
   // Limit the maximum dimension to 2048px to avoid "Image is too large" errors
   const maxDimension = 2048;
   const currentMax = Math.max(node.width, node.height);
@@ -263,8 +265,7 @@ export async function addNodeImageToPreviewFrame(
     format: 'PNG',
     constraint: { type: 'SCALE', value: scale },
   });
-  const imageHash = figma.createImage(imageBytes).hash;
-  return { imageHash, imageBytes };
+  return imageBytes;
 }
 
 export async function createElemList(
@@ -272,50 +273,39 @@ export async function createElemList(
   elemList: UIElement[] = [],
   root: SceneNode = node
 ): Promise<UIElement[]> {
-  // if the node is not visible, return the elemList
-  if (!node.visible) {
-    return elemList;
-  }
+  const rootBox = root.absoluteBoundingBox;
+  if (!rootBox) return elemList;
 
-  // Only 'FRAME', 'INSTANCE', 'COMPONENT' types are considered as UI elements
-  if (['FRAME', 'INSTANCE', 'COMPONENT'].includes(node.type)) {
-    // check if the node has absoluteBoundingBox property
-    if (node.absoluteBoundingBox !== null && root.absoluteBoundingBox !== null) {
-      const { x, y, width, height } = node.absoluteBoundingBox;
-      elemList.push({
-        id: node.id,
-        type: node.type,
-        name: node.name,
-        bbox: {
-          x: x - root.absoluteBoundingBox.x,
-          y: y - root.absoluteBoundingBox.y,
-          width,
-          height,
-        },
-      });
+  const stack: SceneNode[] = [node];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    if (!current.visible) continue;
+
+    if (['FRAME', 'INSTANCE', 'COMPONENT'].includes(current.type)) {
+      const box = current.absoluteBoundingBox;
+      if (box) {
+        elemList.push({
+          id: current.id,
+          type: current.type,
+          name: current.name,
+          bbox: {
+            x: box.x - rootBox.x,
+            y: box.y - rootBox.y,
+            width: box.width,
+            height: box.height,
+          },
+        });
+      }
     }
-  }
 
-  // if the node has children, recursively call createElemList for each child
-  if ('children' in node) {
-    for (const child of node.children) {
-      await createElemList(child, elemList, root);
+    if ('children' in current) {
+      for (let i = current.children.length - 1; i >= 0; i -= 1) {
+        stack.push(current.children[i]);
+      }
     }
   }
 
   return elemList;
-}
-
-export async function createImageFrameFromBytes(imageBytes: Uint8Array, roundCount: number): Promise<FrameNode> {
-  const imageFrame = figma.createFrame();
-  imageFrame.name = `${roundCount}_before_labeled`;
-
-  const image = figma.createImage(imageBytes);
-  const { width, height } = await image.getSizeAsync();
-  imageFrame.resize(width, height);
-  imageFrame.fills = [{ type: 'IMAGE', scaleMode: 'FILL', imageHash: image.hash }];
-
-  return imageFrame;
 }
 
 export async function createLabeledImageFrame(
@@ -376,13 +366,13 @@ export async function getFrameImageBase64(node: SceneNode): Promise<string> {
   return base64Encode;
 }
 
-export async function createTaskFrameWithNameAndDesc(postData: PostData) {
-  const utReportsFrame = await getOrCreateUTReportsFrame();
+export async function createTaskFrameWithNameAndDesc(postData: PostData, anchorNode?: SceneNode) {
   const taskFrame = createTaskFrame(postData.taskName);
-  utReportsFrame.appendChild(taskFrame);
 
   const nodeId = postData.nodeIds[0];
+  const tNodeStart = DEBUG_PERF ? Date.now() : 0;
   const node = (await figma.getNodeByIdAsync(nodeId)) as SceneNode;
+  const tNodeEnd = DEBUG_PERF ? Date.now() : 0;
 
   const headerFrame = figma.createFrame();
   headerFrame.name = 'Header';
@@ -393,12 +383,15 @@ export async function createTaskFrameWithNameAndDesc(postData: PostData) {
   headerFrame.counterAxisSizingMode = 'AUTO';
   taskFrame.appendChild(headerFrame);
 
+  const tHeaderStart = DEBUG_PERF ? Date.now() : 0;
   const nameFrame = createNameFrame(node.name);
   headerFrame.appendChild(nameFrame);
   const taskDescFrame = createTaskDescFrame(postData.taskDesc, postData.personaDesc);
   headerFrame.appendChild(taskDescFrame);
+  const tHeaderEnd = DEBUG_PERF ? Date.now() : 0;
 
   // 다중 프레임일 경우 가로 컨테이너 추가
+  const tRoundsStart = DEBUG_PERF ? Date.now() : 0;
   if (postData.nodeIds.length > 1) {
     const roundsContainer = figma.createFrame();
     roundsContainer.name = 'Analysis Rounds';
@@ -408,6 +401,19 @@ export async function createTaskFrameWithNameAndDesc(postData: PostData) {
     roundsContainer.primaryAxisSizingMode = 'AUTO';
     roundsContainer.counterAxisSizingMode = 'AUTO';
     taskFrame.appendChild(roundsContainer);
+  }
+  const tRoundsEnd = DEBUG_PERF ? Date.now() : 0;
+
+  const tUtStart = DEBUG_PERF ? Date.now() : 0;
+  const utReportsFrame = createUTReportsFrame(anchorNode || node);
+  figma.currentPage.appendChild(utReportsFrame);
+  utReportsFrame.appendChild(taskFrame);
+  const tUtEnd = DEBUG_PERF ? Date.now() : 0;
+
+  if (DEBUG_PERF) {
+    console.log(
+      `[perf] createTaskFrameWithNameAndDesc: getNode ${Math.round(tNodeEnd - tNodeStart)}ms, header ${Math.round(tHeaderEnd - tHeaderStart)}ms, rounds ${Math.round(tRoundsEnd - tRoundsStart)}ms, utReports ${Math.round(tUtEnd - tUtStart)}ms`
+    );
   }
 
   return { taskFrame, node };
@@ -421,7 +427,7 @@ export async function getGenerateReportPrompt(postData: PostData, taskFrameId: s
     const taskFrame = (await figma.getNodeByIdAsync(taskFrameId)) as FrameNode;
     const node = (await figma.getNodeByIdAsync(nodeId)) as SceneNode;
     // create frames for the task and the image
-    const { previewFrame, beforeImage, afterImage, elemList, elementStartX, elementStartY, imageBytes } =
+    const { previewFrame, afterImage, elemList, elementStartX, elementStartY, imageBytes } =
       await createPreviewAndImageFrames(node, taskFrame, roundCount);
     // request AI model and process response
     const prompt = createHolisticPrompt(postData.taskDesc, 1, postData.personaDesc);
@@ -429,7 +435,6 @@ export async function getGenerateReportPrompt(postData: PostData, taskFrameId: s
     return {
       prompt,
       previewFrameId: previewFrame.id,
-      beforeImageId: beforeImage.id,
       afterImageId: afterImage.id,
       elemList,
       elementStartX,
@@ -495,12 +500,11 @@ async function parseExploreRsp(
   elementStartX: number,
   elementStartY: number
 ): Promise<(string | number)[] | null> {
-  // 뷰포트 포커스 조정 2
-  figma.viewport.scrollAndZoomIntoView([previewFrame]);
+  // Do not auto-scroll to previewFrame to avoid flicker in the viewport
   try {
     const parsedResponse = parseModelResponse(rsp);
     if (!parsedResponse) {
-      console.error('ERROR: Failed to parse the model response');
+    console.error('ERROR: Failed to parse the model response');
       return null;
     }
 
@@ -533,6 +537,29 @@ async function parseExploreRsp(
     const { width, height } = await image.getSizeAsync();
     actionImageFrame.resize(width, height);
     actionImageFrame.fills = [{ type: 'IMAGE', scaleMode: 'FILL', imageHash: image.hash }];
+
+    // 🆕 Gaze Flow 추가 (Observation 기반)
+    const gazeFlow = parseGazeFlowFromObservation(observation);
+    if (gazeFlow.length > 1) {
+      const config = {
+        arrowColor: { r: 0.39, g: 0.4, b: 0.95 }, // #6366F1
+        minThickness: 2,
+        maxThickness: 4,
+        opacity: 0.7,
+      };
+      const coordinates = getCoordinatesFromElements(
+        gazeFlow,
+        elemList,
+        elementStartX,
+        elementStartY
+      );
+      for (let i = 0; i < coordinates.length - 1; i++) {
+        const from = coordinates[i];
+        const to = coordinates[i + 1];
+        const arrow = createGazeFlowArrow(from, to, config);
+        actionImageFrame.appendChild(arrow);
+      }
+    }
 
     // Highlight the selected UI element
     if (action.includes('tap') || action.includes('long_press')) {
@@ -615,7 +642,6 @@ async function parseExploreRsp(
     }
   } catch (error) {
     console.error(`ERROR: An exception occurs while parsing the model response: ${error}`);
-    console.error(rsp);
     return null;
   }
 }
@@ -639,7 +665,7 @@ function parseModelResponse(
   const summaryMatch = processedRsp.match(/(?:Summary|요약)[:：]\s*([\s\S]*?)(?:"$|$)/);
 
   if (!observationMatch || !thoughtMatch || !actionMatch || !summaryMatch) {
-    console.error('ERROR: Failed to parse the model response', rsp);
+    console.error('ERROR: Failed to parse the model response');
     // fallback: if we can't find sections, treat everything as observation
     return {
       observation: rsp.trim(),
@@ -662,22 +688,29 @@ export async function createPreviewAndImageFrames(node: SceneNode, taskFrame: Fr
   const anatomyFrame = createAnatomyFrame(roundCount);
   taskFrame.appendChild(anatomyFrame);
   const previewFrame = createPreviewFrame();
+  previewFrame.layoutPositioning = 'AUTO';
   anatomyFrame.appendChild(previewFrame);
-  const { imageBytes } = await addNodeImageToPreviewFrame(node);
-  const beforeImage = await createImageFrameFromBytes(imageBytes, roundCount);
-  // beforeImage는 표시하지 않음 (내부 데이터용으로만 유지)
-  // Create elemList
-  const elemList = await createElemList(node);
+  // NOTE: We do not create any "before" image frame; only labeled images are generated.
+  const [imageBytes, elemList] = await Promise.all([
+    addNodeImageToPreviewFrame(node),
+    createElemList(node),
+  ]);
   // Create and manage labeled image frame
   const {
     labeledFrame: afterImage,
     elementStartX,
     elementStartY,
   } = await createLabeledImageFrame(elemList, imageBytes, node.width, node.height, roundCount);
-  // set time delay for the afterImage to load
-  await delay(500);
+  afterImage.layoutPositioning = 'AUTO';
+  afterImage.x = 0;
+  afterImage.y = 0;
+  // Hide immediately to prevent brief exposure at Page(0,0)
+  afterImage.visible = false;
+  // Keep a minimal yield to avoid UI jank without adding noticeable wait
+  await delay(50);
   previewFrame.appendChild(afterImage);
-  return { previewFrame, beforeImage, afterImage, elemList, elementStartX, elementStartY, imageBytes };
+  afterImage.visible = true;
+  return { previewFrame, afterImage, elemList, elementStartX, elementStartY, imageBytes };
 }
 
 function delay(ms: number) {

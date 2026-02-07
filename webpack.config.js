@@ -1,6 +1,7 @@
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const InlineChunkHtmlPlugin = require('react-dev-utils/InlineChunkHtmlPlugin');
 const path = require('path');
+const webpack = require('webpack');
 
 module.exports = (env, argv) => ({
   mode: argv.mode === 'production' ? 'production' : 'development',
@@ -36,6 +37,9 @@ module.exports = (env, argv) => ({
 
   // Tells Webpack to generate "ui.html" and to inline "ui.ts" into it
   plugins: [
+    new webpack.DefinePlugin({
+      __DEBUG_PERF__: JSON.stringify(process.env.DEBUG_PERF === 'true'),
+    }),
     new HtmlWebpackPlugin({
       template: './src/app/index.html',
       filename: 'ui.html',

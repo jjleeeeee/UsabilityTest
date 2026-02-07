@@ -68,7 +68,8 @@ const App = () => {
   };
 
   const handleApiKeySubmit = () => {
-    if (apiKeyInput.trim() !== '') {
+    const nextKey = (apiKeyInput || '').trim();
+    if (nextKey !== '') {
       parent.postMessage({ pluginMessage: { type: 'saveApiKey', data: { provider: 'Gemini', apiKey: apiKeyInput } } }, '*');
       setApiKeyInput('');
     }
@@ -98,8 +99,9 @@ const App = () => {
         setReportNode(message);
       }
       if (type === 'config') {
-        setGeminiApiKey(message.geminiApiKey);
-        setApiKeyInput(message.geminiApiKey);
+        const key = message?.geminiApiKey ?? message?.apiKey ?? '';
+        setGeminiApiKey(key);
+        setApiKeyInput(key);
       }
     };
   }, []);
@@ -328,7 +330,10 @@ const App = () => {
               <Button variant="plain" onClick={() => setApiKeyModalOpen(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleApiKeySubmit} disabled={apiKeyInput.trim() === '' || apiKeyInput === currentApiKey}>
+              <Button
+                onClick={handleApiKeySubmit}
+                disabled={(apiKeyInput || '').trim() === '' || apiKeyInput === currentApiKey}
+              >
                 Save
               </Button>
             </Box>

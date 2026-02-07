@@ -15,6 +15,11 @@ import { createModelInstance } from './api';
 import { aiConfig, updateAIConfig } from './config';
 import { createHolisticPrompt } from './utils/prompts';
 import { SequenceProcessor, SequenceStepResult } from './sequenceProcessor';
+import {
+  parseGazeFlowFromObservation,
+  getCoordinatesFromElements,
+  createGazeFlowArrow,
+} from './features/gazeFlow';
 
 figma.showUI(__html__, { width: 512, height: 450 });
 
@@ -223,6 +228,30 @@ async function createHolisticReportResult(data: string, taskFrameId: string, res
         beforeImage.fills = [{ type: 'IMAGE', imageHash: beforeImg.hash, scaleMode: 'FILL' }];
         actionImageFrame.appendChild(beforeImage);
 
+        // 🆕 Gaze Flow 추가
+        const observation = stepObservations[i] || '';
+        const gazeFlow = parseGazeFlowFromObservation(observation);
+        if (gazeFlow.length > 1) {
+          const config = {
+            arrowColor: { r: 0.39, g: 0.4, b: 0.95 }, // #6366F1
+            minThickness: 2,
+            maxThickness: 4,
+            opacity: 0.7,
+          };
+          const coordinates = getCoordinatesFromElements(
+            gazeFlow,
+            elemList,
+            elementStartX,
+            elementStartY
+          );
+          for (let j = 0; j < coordinates.length - 1; j++) {
+            const from = coordinates[j];
+            const to = coordinates[j + 1];
+            const arrow = createGazeFlowArrow(from, to, config);
+            actionImageFrame.appendChild(arrow);
+          }
+        }
+
         if (actionStr.includes('tap') || actionStr.includes('long_press')) {
           const areaMatch = actionStr.match(/\((.*?)\)/);
           const area = areaMatch ? parseInt(areaMatch[1]) : null;
@@ -336,39 +365,80 @@ async function createHolisticReportResult(data: string, taskFrameId: string, res
   figma.viewport.scrollAndZoomIntoView([resFrame]);
 }
 
+declare const __DEBUG_PERF__: boolean;
+export const DEBUG_PERF = __DEBUG_PERF__;
+
 async function generateReport(postData: PostData, modelInstance: any) {
   try {
     figma.ui.postMessage({ type: 'loading', message: true });
+    const totalStart = DEBUG_PERF ? Date.now() : 0;
+    const tFontsStart = DEBUG_PERF ? Date.now() : 0;
     await loadFonts();
-    const { taskFrame } = await createTaskFrameWithNameAndDesc(postData);
+    const tFontsEnd = DEBUG_PERF ? Date.now() : 0;
+
+    const tTaskFrameStart = DEBUG_PERF ? Date.now() : 0;
+    const selection = figma.currentPage.selection;
+    const anchorNode = (selection && selection.length > 0 ? selection[0] : undefined) as SceneNode | undefined;
+    const { taskFrame } = await createTaskFrameWithNameAndDesc(postData, anchorNode);
+    const tTaskFrameEnd = DEBUG_PERF ? Date.now() : 0;
+
     figma.ui.postMessage({ type: 'reportNode', message: taskFrame.id });
 
     if (postData.nodeIds.length > 1) {
       figma.notify(`Analyzing ${postData.nodeIds.length} frames...`);
+      const tSeqStart = DEBUG_PERF ? Date.now() : 0;
       const processor = new SequenceProcessor();
       const sequenceResults: SequenceStepResult[] = await processor.processSequence(postData, taskFrame.id);
+      const tSeqEnd = DEBUG_PERF ? Date.now() : 0;
       const allLabeledImages = sequenceResults.map(res => res.afterImageBase64);
       const prompt = createHolisticPrompt(postData.taskDesc, allLabeledImages.length, postData.personaDesc);
+      const tAiStart = DEBUG_PERF ? Date.now() : 0;
       const response = await modelInstance.getModelResponse(prompt, allLabeledImages);
+      const tAiEnd = DEBUG_PERF ? Date.now() : 0;
 
       if (response.success && response.data) {
+        const tRenderStart = DEBUG_PERF ? Date.now() : 0;
         await createHolisticReportResult(response.data, taskFrame.id, sequenceResults);
+        const tRenderEnd = DEBUG_PERF ? Date.now() : 0;
+        if (DEBUG_PERF) {
+          console.log(
+            `[perf] Sequence process: ${Math.round(tSeqEnd - tSeqStart)}ms, AI call: ${Math.round(tAiEnd - tAiStart)}ms, Report render: ${Math.round(tRenderEnd - tRenderStart)}ms`
+          );
+        }
       } else {
         errorMessageHandler(response.error || 'Failed to get holistic response');
       }
     } else {
+      const tPromptStart = DEBUG_PERF ? Date.now() : 0;
       const nodeId = postData.nodeIds[0];
       const { prompt, previewFrameId, afterImageId, elemList, elementStartX, elementStartY, imageBytes }: any =
         await getGenerateReportPrompt(postData, taskFrame.id, nodeId, 0);
+      const tPromptEnd = DEBUG_PERF ? Date.now() : 0;
 
+      const tAiStart = DEBUG_PERF ? Date.now() : 0;
       const response = await requestAIModelAndProcessResponse(prompt, afterImageId, modelInstance);
+      const tAiEnd = DEBUG_PERF ? Date.now() : 0;
       if (response.success && response.data) {
+        const tRenderStart = DEBUG_PERF ? Date.now() : 0;
         await generateReportResult(response.data, previewFrameId, elemList, 0, taskFrame.id, elementStartX, elementStartY, imageBytes);
+        const tRenderEnd = DEBUG_PERF ? Date.now() : 0;
+        if (DEBUG_PERF) {
+          console.log(
+            `[perf] Prompt+image prep: ${Math.round(tPromptEnd - tPromptStart)}ms, AI call: ${Math.round(tAiEnd - tAiStart)}ms, Report render: ${Math.round(tRenderEnd - tRenderStart)}ms`
+          );
+        }
       } else {
         errorMessageHandler(response.error || 'Failed to get response');
       }
     }
 
+    const totalEnd = DEBUG_PERF ? Date.now() : 0;
+    if (DEBUG_PERF) {
+      console.log(
+        `[perf] Fonts load: ${Math.round(tFontsEnd - tFontsStart)}ms, Task frame: ${Math.round(tTaskFrameEnd - tTaskFrameStart)}ms`
+      );
+      console.log(`[perf] Total submit->complete: ${Math.round(totalEnd - totalStart)}ms`);
+    }
     figma.ui.postMessage({ type: 'loading', message: false });
     figma.notify('Analysis completed', { timeout: 3000 });
   } catch (error) {
@@ -401,7 +471,10 @@ figma.ui.onmessage = async (msg) => {
     const { apiKey } = msg.data;
     await figma.clientStorage.setAsync('geminiApiKey', apiKey);
     updateAIConfig({ apiKey: apiKey });
-    figma.ui.postMessage({ type: 'config', message: aiConfig });
+    figma.ui.postMessage({
+      type: 'config',
+      message: { geminiApiKey: apiKey, provider: 'Gemini' },
+    });
     figma.notify('API Key saved successfully', { timeout: 3000 });
   }
 
